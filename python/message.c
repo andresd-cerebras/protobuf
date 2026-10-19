@@ -2264,8 +2264,9 @@ PyObject* PyUpb_MessageMeta_DoCreateClass(PyObject* py_descriptor,
   const upb_MessageDef* msgdef = PyUpb_Descriptor_GetDef(py_descriptor);
   assert(msgdef);
   PyObject* pool = PyUpb_AnyDescriptor_GetPool(py_descriptor);
-  assert(
-      !PyUpb_DescriptorPool_CacheGet(pool, upb_MessageDef_MiniTable(msgdef)));
+  PyObject* existing =
+      PyUpb_DescriptorPool_CacheGet(pool, upb_MessageDef_MiniTable(msgdef));
+  if (existing) return existing;
 
   PyObject* slots = PyTuple_New(0);
   if (!slots) return NULL;
@@ -2277,6 +2278,7 @@ PyObject* PyUpb_MessageMeta_DoCreateClass(PyObject* py_descriptor,
   //    (Message, Message)            # for regular messages
   //    (Message, Message, WktBase)   # For well-known types
   PyObject* wkt_bases = PyUpb_GetWktBases(state);
+  if (!wkt_bases) return NULL;
   PyObject* wkt_base =
       PyDict_GetItemString(wkt_bases, upb_MessageDef_FullName(msgdef));
   PyObject* args;
