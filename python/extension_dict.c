@@ -104,7 +104,8 @@ static PyObject* PyUpb_ExtensionDict_RichCompare(PyObject* _self,
   return PyBool_FromLong(ret);
 }
 
-static int PyUpb_ExtensionDict_Contains(PyObject* _self, PyObject* key) {
+static int PyUpb_ExtensionDict_ContainsUnprotected(PyObject* _self,
+                                                  PyObject* key) {
   PyUpb_ExtensionDict* self = (PyUpb_ExtensionDict*)_self;
   const upb_FieldDef* f = PyUpb_Message_GetExtensionDef(self->msg, key);
   if (!f) return -1;
@@ -119,17 +120,54 @@ static int PyUpb_ExtensionDict_Contains(PyObject* _self, PyObject* key) {
   }
 }
 
-static Py_ssize_t PyUpb_ExtensionDict_Length(PyObject* _self) {
+static int PyUpb_ExtensionDict_Contains(PyObject* self, PyObject* key) {
+  PyObject* arena =
+      PyUpb_Message_GetArena(((PyUpb_ExtensionDict*)self)->msg);
+  Py_INCREF(arena);
+  if (!PyUpb_Arena_TryRead(arena)) {
+    Py_DECREF(arena);
+    return -1;
+  }
+  int result = PyUpb_ExtensionDict_ContainsUnprotected(self, key);
+  PyUpb_Arena_EndRead(arena);
+  Py_DECREF(arena);
+  return result;
+}
+
+static Py_ssize_t PyUpb_ExtensionDict_LengthUnprotected(PyObject* _self) {
   PyUpb_ExtensionDict* self = (PyUpb_ExtensionDict*)_self;
   upb_Message* msg = PyUpb_Message_GetIfReified(self->msg);
   return msg ? upb_Message_ExtensionCount(msg) : 0;
+}
+
+static Py_ssize_t PyUpb_ExtensionDict_Length(PyObject* self) {
+  PyObject* arena =
+      PyUpb_Message_GetArena(((PyUpb_ExtensionDict*)self)->msg);
+  Py_INCREF(arena);
+  if (!PyUpb_Arena_TryRead(arena)) {
+    Py_DECREF(arena);
+    return -1;
+  }
+  Py_ssize_t result = PyUpb_ExtensionDict_LengthUnprotected(self);
+  PyUpb_Arena_EndRead(arena);
+  Py_DECREF(arena);
+  return result;
 }
 
 static PyObject* PyUpb_ExtensionDict_Subscript(PyObject* _self, PyObject* key) {
   PyUpb_ExtensionDict* self = (PyUpb_ExtensionDict*)_self;
   const upb_FieldDef* f = PyUpb_Message_GetExtensionDef(self->msg, key);
   if (!f) return NULL;
-  return PyUpb_Message_GetFieldValue(self->msg, f);
+  PyObject* arena = PyUpb_Message_GetArena(self->msg);
+  Py_INCREF(arena);
+  if (!PyUpb_Arena_TryRead(arena)) {
+    Py_DECREF(arena);
+    return NULL;
+  }
+  PyObject* result = PyUpb_Message_GetFieldValue(self->msg, f);
+  PyUpb_Arena_EndRead(arena);
+  Py_DECREF(arena);
+  return result;
 }
 
 static int PyUpb_ExtensionDict_AssignSubscript(PyObject* _self, PyObject* key,
@@ -145,8 +183,16 @@ static int PyUpb_ExtensionDict_AssignSubscript(PyObject* _self, PyObject* key,
   if (val) {
     return PyUpb_Message_SetFieldValue(self->msg, f, val, PyExc_TypeError);
   } else {
-    if (!PyUpb_Message_DoClearField(self->msg, f)) return -1;
-    return 0;
+    PyObject* arena = PyUpb_Message_GetArena(self->msg);
+    Py_INCREF(arena);
+    if (!PyUpb_Arena_TryWrite(arena)) {
+      Py_DECREF(arena);
+      return -1;
+    }
+    bool ok = PyUpb_Message_DoClearField(self->msg, f);
+    PyUpb_Arena_EndWrite(arena);
+    Py_DECREF(arena);
+    return ok ? 0 : -1;
   }
 }
 
@@ -212,7 +258,7 @@ static void PyUpb_ExtensionIterator_Dealloc(void* _self) {
   PyUpb_Dealloc(_self);
 }
 
-PyObject* PyUpb_ExtensionIterator_IterNext(PyObject* _self) {
+static PyObject* PyUpb_ExtensionIterator_IterNextUnprotected(PyObject* _self) {
   PyUpb_ExtensionIterator* self = (PyUpb_ExtensionIterator*)_self;
   upb_Message* msg = PyUpb_Message_GetIfReified(self->msg);
   if (!msg) return NULL;
@@ -225,6 +271,20 @@ PyObject* PyUpb_ExtensionIterator_IterNext(PyObject* _self) {
     if (!upb_Message_Next(msg, m, symtab, &f, &val, &self->iter)) return NULL;
     if (upb_FieldDef_IsExtension(f)) return PyUpb_FieldDescriptor_Get(pool, f);
   }
+}
+
+PyObject* PyUpb_ExtensionIterator_IterNext(PyObject* self) {
+  PyObject* arena =
+      PyUpb_Message_GetArena(((PyUpb_ExtensionIterator*)self)->msg);
+  Py_INCREF(arena);
+  if (!PyUpb_Arena_TryRead(arena)) {
+    Py_DECREF(arena);
+    return NULL;
+  }
+  PyObject* result = PyUpb_ExtensionIterator_IterNextUnprotected(self);
+  PyUpb_Arena_EndRead(arena);
+  Py_DECREF(arena);
+  return result;
 }
 
 static PyType_Slot PyUpb_ExtensionIterator_Slots[] = {
