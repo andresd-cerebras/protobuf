@@ -135,6 +135,9 @@ void PyUpb_Arena_SetFrozen(PyObject* arena, bool frozen);
 // exit path. Only the experimental free-threaded build enforces admission.
 bool PyUpb_Arena_TryRead(PyObject* arena);
 bool PyUpb_Arena_TryWrite(PyObject* arena);
+// On success, replace one owned read admission with a write admission.
+// On failure, the caller still owns the read admission.
+bool PyUpb_Arena_TryUpgradeReadToWrite(PyObject* arena);
 void PyUpb_Arena_EndRead(PyObject* arena);
 void PyUpb_Arena_EndWrite(PyObject* arena);
 
